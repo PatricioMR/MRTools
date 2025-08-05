@@ -1,48 +1,123 @@
-function MRTools_CSVNMR_To_MATLABFile()
-% Opens a window to select the file (Excel or CSV)
-[file, path] = uigetfile({'*.xlsx;*.csv', 'Data Files (*.xlsx, *.csv)'}, 'Select the file');
-if isequal(file, 0)
-    error('No file selected. Operation canceled.');
-end
+import tkinter as tk
+from tkinter import filedialog, messagebox
+import pandas as pd
+import numpy as np
+import scipy.io as sio
+import os
 
-% Extracts the file extension
-[~, ~, extension] = fileparts(file);
-full_path = fullfile(path, file);
+class NMRDataProcessor:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("MRTools - NMR Data Processor")
+        self.root.geometry("500x300")
 
-% Reads the file (Excel or CSV)
-if strcmpi(extension, '.xlsx')
-    % Excel mode
-    [table_data, ~, raw] = xlsread(full_path);
-    headers = raw(1, :); % Headers are in the first row of 'raw'
-elseif strcmpi(extension, '.csv')
-    % CSV mode
-    raw = readtable(full_path, 'ReadVariableNames', true);
-    headers = raw.Properties.VariableNames; % Extracts column names
-    table_data = table2array(raw); % Converts to numeric matrix
-end
+        self.file_path = tk.StringVar()
+        self.save_path = tk.StringVar()
 
-% Processes the data
-if strcmpi(extension, '.xlsx')
-    % Excel mode
-    ppm_mean = table_data(:, 1)'; % PPM as row vector
-    sample_data = table_data(:, 2:end)'; % Each ROW = 1 sample
-    sample_names = headers(2:end); % Gets data column headers
-elseif strcmpi(extension, '.csv')
-    % CSV mode
-    ppm_mean = table2array(raw(1:end, 1))'; % PPM
-    sample_data = table2array(raw(1:end, 2:end))'; % Ignores first column
-    sample_names = headers(2:end)'; % Gets data column headers (ignores first)
-end
+        # Interface
+        self.create_widgets()
 
-% Creates the 1x1 structure
-nmrdata = struct();
-nmrdata.data = sample_data; % Matrix [n_samples x n_ppm]
-nmrdata.ppm_mean = ppm_mean;   % Row vector [1 x n_ppm]
-nmrdata.subjects = sample_names; % Column vector [n_samples x 1]
+    def create_widgets(self):
 
-% Window to save the result
-[save_file, save_path] = uiputfile('*.mat', 'Save MATLAB structure');
-if ~isequal(save_file, 0)
-    save(fullfile(save_path, save_file), 'nmrdata');
-    disp('File saved successfully!');
-end
+        main_frame = tk.Frame(self.root, padx=20, pady=20)
+        main_frame.pack(expand=True, fill=tk.BOTH)
+
+        # Botão para selecionar arquivo
+        tk.Label(main_frame, text="Select your data files (Excel/CSV):").pack(anchor=tk.W)
+        file_frame = tk.Frame(main_frame)
+        file_frame.pack(fill=tk.X, pady=5)
+        tk.Entry(file_frame, textvariable=self.file_path, width=40).pack(side=tk.LEFT, fill=tk.X, expand=True)
+        tk.Button(file_frame, text="Search", command=self.select_file).pack(side=tk.LEFT, padx=5)
+
+        # Botão para selecionar local de salvamento
+        tk.Label(main_frame, text="Save your file .mat as:").pack(anchor=tk.W, pady=(15,0))
+        save_frame = tk.Frame(main_frame)
+        save_frame.pack(fill=tk.X, pady=5)
+        tk.Entry(save_frame, textvariable=self.save_path, width=40).pack(side=tk.LEFT, fill=tk.X, expand=True)
+        tk.Button(save_frame, text="Search", command=self.select_save_location).pack(side=tk.LEFT, padx=5)
+
+
+        tk.Button(main_frame, text="Process and Save", command=self.process_data,
+                 bg='#4CAF50', fg='white').pack(pady=20)
+
+        # Status
+        self.status_label = tk.Label(main_frame, text="", fg='gray')
+        self.status_label.pack()
+
+    def select_file(self):
+        filetypes = (
+            ('Excel/CSV files', '*.xlsx *.csv'),
+            ('All files', '*.*')
+        )
+        filename = filedialog.askopenfilename(
+            title='Select you data file',
+            filetypes=filetypes
+        )
+        if filename:
+            self.file_path.set(filename)
+
+            base_name = os.path.splitext(os.path.basename(filename))[0] + '_nmrdata.mat'
+            self.save_path.set(os.path.join(os.path.dirname(filename), base_name))
+
+    def select_save_location(self):
+        filename = filedialog.asksaveasfilename(
+            title='Save your file .mat as',
+            defaultextension='.mat',
+            filetypes=(('MATLAB Data', '*.mat'),)
+        )
+        if filename:
+            self.save_path.set(filename)
+
+    def process_data(self):
+        if not self.file_path.get():
+            messagebox.showerror("Error", "No file selected!")
+            return
+
+        if not self.save_path.get():
+            messagebox.showerror("Error", "You must select a save location!")
+            return
+
+        try:
+            self.status_label.config(text="Processing...", fg='blue')
+            self.root.update()
+
+
+            file_path = self.file_path.get()
+            ext = os.path.splitext(file_path)[1].lower()
+
+            if ext == '.xlsx':
+
+                df = pd.read_excel(file_path, header=0)
+                headers = df.columns.tolist()
+                data = df.values
+            elif ext == '.csv':
+                # Lê CSV
+                df = pd.read_csv(file_path, header=0)
+                headers = df.columns.tolist()
+                data = df.values
+            else:
+                raise ValueError("Wrong file type!")
+
+            ppm_mean = data[:, 0].T
+            sample_data = data[:, 1:].T
+            sample_names = headers[1:]
+
+            nmrdata = {
+                'data': sample_data,
+                'ppm_mean': ppm_mean,
+                'subjects': np.array(sample_names, dtype='object')
+            }
+
+            sio.savemat(self.save_path.get(), {'nmrdata': nmrdata})
+
+            self.status_label.config(text="File saved!", fg='green')
+            messagebox.showinfo("Sucess", "Processed data and saved!")
+
+        except Exception as e:
+            self.status_label.config(text="Process failure", fg='red')
+            messagebox.showerror("Error", f"Something is wrong!:\n{str(e)}")
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = NMRDataProcessor(root)
+    root.mainloop()
