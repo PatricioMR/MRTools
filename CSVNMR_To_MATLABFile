@@ -1,0 +1,48 @@
+function MRTools_CSVNMR_To_MATLABFile()
+% Opens a window to select the file (Excel or CSV)
+[file, path] = uigetfile({'*.xlsx;*.csv', 'Data Files (*.xlsx, *.csv)'}, 'Select the file');
+if isequal(file, 0)
+    error('No file selected. Operation canceled.');
+end
+
+% Extracts the file extension
+[~, ~, extension] = fileparts(file);
+full_path = fullfile(path, file);
+
+% Reads the file (Excel or CSV)
+if strcmpi(extension, '.xlsx')
+    % Excel mode
+    [table_data, ~, raw] = xlsread(full_path);
+    headers = raw(1, :); % Headers are in the first row of 'raw'
+elseif strcmpi(extension, '.csv')
+    % CSV mode
+    raw = readtable(full_path, 'ReadVariableNames', true);
+    headers = raw.Properties.VariableNames; % Extracts column names
+    table_data = table2array(raw); % Converts to numeric matrix
+end
+
+% Processes the data
+if strcmpi(extension, '.xlsx')
+    % Excel mode
+    ppm_mean = table_data(:, 1)'; % PPM as row vector
+    sample_data = table_data(:, 2:end)'; % Each ROW = 1 sample
+    sample_names = headers(2:end); % Gets data column headers
+elseif strcmpi(extension, '.csv')
+    % CSV mode
+    ppm_mean = table2array(raw(1:end, 1))'; % PPM
+    sample_data = table2array(raw(1:end, 2:end))'; % Ignores first column
+    sample_names = headers(2:end)'; % Gets data column headers (ignores first)
+end
+
+% Creates the 1x1 structure
+nmrdata = struct();
+nmrdata.data = sample_data; % Matrix [n_samples x n_ppm]
+nmrdata.ppm_mean = ppm_mean;   % Row vector [1 x n_ppm]
+nmrdata.subjects = sample_names; % Column vector [n_samples x 1]
+
+% Window to save the result
+[save_file, save_path] = uiputfile('*.mat', 'Save MATLAB structure');
+if ~isequal(save_file, 0)
+    save(fullfile(save_path, save_file), 'nmrdata');
+    disp('File saved successfully!');
+end
